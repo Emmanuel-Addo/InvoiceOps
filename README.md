@@ -109,7 +109,7 @@ cd InvoiceOps
 
 ```bash
 cd backend
-pip install -r requirements.txt
+uv sync
 ```
 
 Create a `.env` file in the `backend/` folder:
@@ -121,14 +121,14 @@ GEMINI_API_KEY=your_google_gemini_api_key
 
 Run the backend:
 ```bash
-uvicorn main:app --reload
+uv run uvicorn main:app --reload
 ```
 
 ### 4. Set up the Frontend
 
 ```bash
 cd frontend
-npm install
+yarn install
 ```
 
 Create a `.env.local` file in the `frontend/` folder:
@@ -140,7 +140,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 Run the frontend:
 ```bash
-npm run dev
+yarn dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) to see the app.
