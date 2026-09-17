@@ -42,7 +42,7 @@ export default function DashboardOverview() {
   useEffect(() => {
     async function fetchData() {
       try {
-        const API_BASE = process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000'
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000')
         const [sumRes, docsRes] = await Promise.all([
           fetch(`${API_BASE}/api/reports/summary`).then(r => r.json()),
           fetch(`${API_BASE}/api/documents?limit=8`).then(r => r.json())
@@ -69,11 +69,11 @@ export default function DashboardOverview() {
   const totalExpenses = summary?.total_approved_amount || 0
 
   const PIPELINE = [
-    { label: 'Uploaded',     count: totalProcessed,  color: 'bg-blue-400',    border: 'border-blue-500/30',    text: 'text-blue-400' },
-    { label: 'Processing',   count: 0,               color: 'bg-purple-400',  border: 'border-purple-500/30',  text: 'text-purple-400' },
-    { label: 'Needs Review', count: pendingCount,    color: 'bg-amber-400',   border: 'border-amber-500/30',   text: 'text-amber-400' },
-    { label: 'Approved',     count: approvedCount,   color: 'bg-emerald-400', border: 'border-emerald-500/30', text: 'text-emerald-400' },
-    { label: 'Rejected',     count: rejectedCount,   color: 'bg-red-400',     border: 'border-red-500/30',     text: 'text-red-400' },
+    { label: 'Uploaded',     count: totalProcessed,  color: 'bg-gray-500',  border: 'border-[#2a2c32]', text: 'text-white' },
+    { label: 'Processing',   count: 0,               color: 'bg-gray-600',  border: 'border-[#2a2c32]', text: 'text-white' },
+    { label: 'Needs Review', count: pendingCount,    color: 'bg-gray-500',  border: 'border-[#2a2c32]', text: 'text-white' },
+    { label: 'Approved',     count: approvedCount,   color: 'bg-white',     border: 'border-[#2a2c32]', text: 'text-white' },
+    { label: 'Rejected',     count: rejectedCount,   color: 'bg-gray-600',  border: 'border-[#2a2c32]', text: 'text-white' },
   ]
   
   const pendingApprovalsList = recentDocs.filter(d => d.status === 'Pending Review' || d.status === 'Needs Attention')
