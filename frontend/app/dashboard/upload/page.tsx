@@ -105,7 +105,8 @@ export default function UploadPage() {
       })()
 
       // Call the backend
-      const res = await fetch('http://localhost:8000/api/upload-document', {
+      const API_BASE = process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000'
+      const res = await fetch(`${API_BASE}/api/upload-document`, {
         method: 'POST',
         body: formData,
       })

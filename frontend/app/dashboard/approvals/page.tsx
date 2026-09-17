@@ -29,40 +29,55 @@ export default function ApprovalsPage() {
   const [editedTotal, setEditedTotal] = useState<string>(queue[0]?.amount.toString() ?? '0')
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'reject' } | null>(null)
 
-  // Load real uploaded documents from backend (stored in localStorage by upload page)
+  // Fetch pending documents from backend
   useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem('invoiceops_uploads') ?? '[]')
-      if (stored.length > 0) {
-        // Map backend response shape to FinancialDocument shape
-        const realDocs: FinancialDocument[] = stored.map((d: Record<string, unknown>) => ({
-          id: d.id as string,
-          vendor: d.vendor as string,
-          type: (d.doc_type ?? 'Invoice') as FinancialDocument['type'],
-          amount: d.total_amount as number,
-          currency: (d.currency ?? 'GHS') as string,
-          date: d.date as string,
-          category: (d.category ?? 'Other') as ExpenseCategory,
-          status: 'Pending Review' as FinancialDocument['status'],
-          invoiceNumber: d.invoice_number as string | undefined,
-          taxAmount: d.tax_amount as number | undefined,
-          subtotal: d.subtotal as number | undefined,
-          paymentMethod: (d.payment_method ?? 'Other') as FinancialDocument['paymentMethod'],
-          fileName: d.filename as string,
-          fileType: ((d.file_type as string)?.toUpperCase() === 'PDF' ? 'PDF' : 'JPG') as FinancialDocument['fileType'],
-          uploadedAt: d.uploaded_at as string,
-          aiConfidence: d.ai_confidence as FinancialDocument['aiConfidence'],
-          warnings: d.warnings as string[] | undefined,
+    async function fetchPending() {
+      try {
+        const API_BASE = process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000'
+        const res = await fetch(`${API_BASE}/api/documents?limit=50`)
+        const data = await res.json()
+        const docs = data.documents || []
+        
+        const pendingDocs = docs.filter((d: any) => d.status === 'Pending Review' || d.status === 'Needs Attention')
+        
+        const mappedDocs: FinancialDocument[] = pendingDocs.map((d: any) => ({
+          id: d.id,
+          vendor: d.vendor || 'Unknown',
+          type: (d.doc_type || 'Invoice') as FinancialDocument['type'],
+          amount: d.total_amount || 0,
+          currency: (d.currency || 'GHS'),
+          date: d.date || d.uploaded_at,
+          category: (d.category || 'Other') as ExpenseCategory,
+          status: d.status,
+          invoiceNumber: d.invoice_number,
+          taxAmount: d.tax_amount,
+          subtotal: d.subtotal,
+          paymentMethod: (d.payment_method || 'Other') as FinancialDocument['paymentMethod'],
+          fileName: d.file_name || 'unknown_file',
+          fileType: ((d.file_type || 'PDF').toUpperCase() === 'PDF' ? 'PDF' : 'JPG') as FinancialDocument['fileType'],
+          uploadedAt: d.uploaded_at,
+          aiConfidence: {
+            vendor: d.confidence_vendor || 0,
+            date: d.confidence_date || 0,
+            total: d.confidence_total || 0,
+            category: d.confidence_category || 0,
+          },
+          warnings: d.warnings || [],
         }))
-        // Put real uploads at top of queue, then mock data
-        setQueue([...realDocs, ...PENDING_APPROVALS])
-        setSelected(realDocs[0] ?? PENDING_APPROVALS[0] ?? null)
-        setEditedCategory(realDocs[0]?.category ?? PENDING_APPROVALS[0]?.category ?? 'Other')
-        setEditedTotal((realDocs[0]?.amount ?? PENDING_APPROVALS[0]?.amount ?? 0).toString())
+
+        setQueue(mappedDocs)
+        if (mappedDocs.length > 0) {
+          setSelected(mappedDocs[0])
+          setEditedCategory(mappedDocs[0].category)
+          setEditedTotal(mappedDocs[0].amount.toString())
+        } else {
+          setSelected(null)
+        }
+      } catch (err) {
+        console.error("Failed to fetch pending documents", err)
       }
-    } catch {
-      // localStorage unavailable — use mock data only
     }
+    fetchPending()
   }, [])
 
   const showToast = (msg: string, type: 'success' | 'reject') => {
@@ -78,10 +93,11 @@ export default function ApprovalsPage() {
 
   const removeFromQueue = async (id: string, action: 'approve' | 'reject' | 'correct') => {
     try {
+      const API_BASE = process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000'
       if (action === 'approve') {
-        await fetch(`http://localhost:8000/api/approve/${id}`, { method: 'POST' })
+        await fetch(`${API_BASE}/api/approve/${id}`, { method: 'POST' })
       } else if (action === 'reject') {
-        await fetch(`http://localhost:8000/api/reject/${id}`, { method: 'POST' })
+        await fetch(`${API_BASE}/api/reject/${id}`, { method: 'POST' })
       }
     } catch (e) {
       console.error("Backend update failed", e)

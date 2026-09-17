@@ -42,9 +42,10 @@ export default function DashboardOverview() {
   useEffect(() => {
     async function fetchData() {
       try {
+        const API_BASE = process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000'
         const [sumRes, docsRes] = await Promise.all([
-          fetch('http://localhost:8000/api/reports/summary').then(r => r.json()),
-          fetch('http://localhost:8000/api/documents?limit=8').then(r => r.json())
+          fetch(`${API_BASE}/api/reports/summary`).then(r => r.json()),
+          fetch(`${API_BASE}/api/documents?limit=8`).then(r => r.json())
         ])
         setSummary(sumRes)
         setRecentDocs(docsRes.documents || [])
