@@ -1,7 +1,6 @@
 "use client"
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { MOCK_DOCUMENTS, DocumentStatus, DocumentType, FinancialDocument } from '@/lib/mockData'
 
 const StatusBadge = ({ status }: { status: string }) => {
   const styles: Record<string, string> = {
@@ -26,21 +25,43 @@ const FILE_ICON = (type: string) => {
 }
 
 export default function DocumentsPage() {
+  const [loading, setLoading] = useState(true)
+  const [documents, setDocuments] = useState<any[]>([])
+
   const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState<DocumentType | 'All'>('All')
-  const [statusFilter, setStatusFilter] = useState<DocumentStatus | 'All'>('All')
+  const [typeFilter, setTypeFilter] = useState<string>('All')
+  const [statusFilter, setStatusFilter] = useState<string>('All')
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
 
-  const filtered = MOCK_DOCUMENTS
+  useEffect(() => {
+    async function fetchDocuments() {
+      try {
+        const res = await fetch('http://localhost:8000/api/documents?limit=1000')
+        const data = await res.json()
+        setDocuments(data.documents || [])
+      } catch (err) {
+        console.error("Failed to load documents data", err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchDocuments()
+  }, [])
+
+  if (loading) {
+    return <div className="p-8 text-white">Loading documents...</div>
+  }
+
+  const filtered = documents
     .filter((d) => {
-      const matchSearch = d.vendor.toLowerCase().includes(search.toLowerCase()) ||
-        (d.invoiceNumber ?? '').toLowerCase().includes(search.toLowerCase())
-      const matchType = typeFilter === 'All' || d.type === typeFilter
+      const matchSearch = (d.vendor || '').toLowerCase().includes(search.toLowerCase()) ||
+        (d.invoice_number || '').toLowerCase().includes(search.toLowerCase())
+      const matchType = typeFilter === 'All' || d.doc_type === typeFilter
       const matchStatus = statusFilter === 'All' || d.status === statusFilter
       return matchSearch && matchType && matchStatus
     })
     .sort((a, b) => {
-      const diff = new Date(b.date).getTime() - new Date(a.date).getTime()
+      const diff = new Date(b.date || b.uploaded_at).getTime() - new Date(a.date || a.uploaded_at).getTime()
       return sortOrder === 'newest' ? diff : -diff
     })
 
@@ -72,17 +93,16 @@ export default function DocumentsPage() {
         </div>
         <select
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as DocumentType | 'All')}
+          onChange={(e) => setTypeFilter(e.target.value)}
           className="bg-[#0f1115] border border-[#23252a] rounded-xl px-4 py-2.5 text-sm text-gray-300 focus:outline-none focus:border-[#ff6b8b]/50"
         >
           <option value="All">All Types</option>
           <option value="Invoice">Invoice</option>
           <option value="Receipt">Receipt</option>
-          <option value="Expense Document">Expense Document</option>
         </select>
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as DocumentStatus | 'All')}
+          onChange={(e) => setStatusFilter(e.target.value)}
           className="bg-[#0f1115] border border-[#23252a] rounded-xl px-4 py-2.5 text-sm text-gray-300 focus:outline-none focus:border-[#ff6b8b]/50"
         >
           <option value="All">All Statuses</option>
@@ -123,28 +143,30 @@ export default function DocumentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((doc: FinancialDocument) => (
+                {filtered.map((doc: any) => (
                   <tr key={doc.id} className="border-b border-[#1a1c22] hover:bg-[#1a1c22]/50 transition-colors">
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
-                        {FILE_ICON(doc.fileType)}
-                        <span className="text-xs text-gray-400 max-w-[120px] truncate">{doc.fileName}</span>
+                        {FILE_ICON(doc.file_type || 'PDF')}
+                        <span className="text-xs text-gray-400 max-w-[120px] truncate">{doc.file_name || 'unknown_file'}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-4 text-sm text-white font-medium">{doc.vendor}</td>
-                    <td className="px-5 py-4 text-sm text-gray-400">{doc.type}</td>
-                    <td className="px-5 py-4 text-sm text-white font-medium">₵{doc.amount.toLocaleString()}</td>
-                    <td className="px-5 py-4 text-sm text-gray-400">{new Date(doc.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
-                    <td className="px-5 py-4 text-sm text-gray-400">{doc.category}</td>
+                    <td className="px-5 py-4 text-sm text-white font-medium">{doc.vendor || 'Unknown'}</td>
+                    <td className="px-5 py-4 text-sm text-gray-400">{doc.doc_type || 'Invoice'}</td>
+                    <td className="px-5 py-4 text-sm text-white font-medium">₵{(doc.total_amount || 0).toLocaleString()}</td>
+                    <td className="px-5 py-4 text-sm text-gray-400">{new Date(doc.date || doc.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                    <td className="px-5 py-4 text-sm text-gray-400">{doc.category || 'Other'}</td>
                     <td className="px-5 py-4"><StatusBadge status={doc.status} /></td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
                         <Link href={`/dashboard/approvals`} className="text-xs text-gray-400 hover:text-white transition-colors px-2.5 py-1 rounded-lg border border-[#23252a] hover:border-gray-500">
                           Review
                         </Link>
+                        {/* 
                         <button className="text-xs text-red-400 hover:text-red-300 transition-colors px-2.5 py-1 rounded-lg border border-[#23252a] hover:border-red-500/50">
                           Delete
                         </button>
+                        */}
                       </div>
                     </td>
                   </tr>

@@ -1,7 +1,5 @@
 import React from "react";
 import image1 from "../assets/image1.jpeg";
-import { ArrowRight, CheckCircle2 } from "lucide-react";
-import { Link } from "react-router-dom";
 
 const About = () => {
   return (
@@ -19,7 +17,7 @@ const About = () => {
         <div className="w-full lg:w-1/2 relative">
           <div className="relative overflow-hidden h-full min-h-[400px]">
             <img
-              src={image1}
+              src={image1.src}
               alt="Fleet tracking map view"
               className="w-full h-full object-cover rounded-md"
             />

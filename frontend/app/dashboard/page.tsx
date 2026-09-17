@@ -1,7 +1,6 @@
 "use client"
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { MOCK_DOCUMENTS, MONTHLY_STATS, PENDING_APPROVALS } from '@/lib/mockData'
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 const StatusBadge = ({ status }: { status: string }) => {
@@ -29,32 +28,55 @@ const StatusBadge = ({ status }: { status: string }) => {
   )
 }
 
-// ─── Derived data ─────────────────────────────────────────────────────────────
-const totalProcessed  = MOCK_DOCUMENTS.length
-const pendingCount    = MOCK_DOCUMENTS.filter(d => d.status === 'Pending Review' || d.status === 'Needs Attention').length
-const approvedCount   = MOCK_DOCUMENTS.filter(d => d.status === 'Approved').length
-const rejectedCount   = MOCK_DOCUMENTS.filter(d => d.status === 'Rejected').length
-const totalExpenses   = MOCK_DOCUMENTS.reduce((s, d) => s + d.amount, 0)
-const maxBar          = Math.max(...MONTHLY_STATS.map(m => m.total))
-
-// Pipeline stages
-const PIPELINE = [
-  { label: 'Uploaded',     count: totalProcessed,  color: 'bg-blue-400',    border: 'border-blue-500/30',    text: 'text-blue-400' },
-  { label: 'Processing',   count: 0,                color: 'bg-purple-400',  border: 'border-purple-500/30',  text: 'text-purple-400' },
-  { label: 'Needs Review', count: pendingCount,     color: 'bg-amber-400',   border: 'border-amber-500/30',   text: 'text-amber-400' },
-  { label: 'Approved',     count: approvedCount,    color: 'bg-emerald-400', border: 'border-emerald-500/30', text: 'text-emerald-400' },
-  { label: 'Rejected',     count: rejectedCount,    color: 'bg-red-400',     border: 'border-red-500/30',     text: 'text-red-400' },
-]
-
 // AI insights
 const AI_INSIGHTS = [
-  { type: 'warning', msg: '3 receipts are missing vendor tax information.' },
-  { type: 'info',    msg: 'Office expenses increased by 18% compared with August.' },
-  { type: 'alert',   msg: '2 possible duplicate invoices detected.' },
-  { type: 'success', msg: '₵20,200 in expenses approved and ready to export.' },
+  { type: 'success', msg: 'Dashboard successfully connected to backend.' },
+  { type: 'info', msg: 'AI model configured to gemini-2.5-flash.' },
 ]
 
 export default function DashboardOverview() {
+  const [loading, setLoading] = useState(true)
+  const [summary, setSummary] = useState<any>(null)
+  const [recentDocs, setRecentDocs] = useState<any[]>([])
+  
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [sumRes, docsRes] = await Promise.all([
+          fetch('http://localhost:8000/api/reports/summary').then(r => r.json()),
+          fetch('http://localhost:8000/api/documents?limit=8').then(r => r.json())
+        ])
+        setSummary(sumRes)
+        setRecentDocs(docsRes.documents || [])
+      } catch (err) {
+        console.error("Failed to load dashboard data", err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchData()
+  }, [])
+
+  if (loading) {
+    return <div className="p-8 text-white">Loading dashboard...</div>
+  }
+
+  const totalProcessed = summary?.total_documents || 0
+  const pendingCount = summary?.pending_count || 0
+  const approvedCount = summary?.approved_count || 0
+  const rejectedCount = totalProcessed - pendingCount - approvedCount // approximation
+  const totalExpenses = summary?.total_approved_amount || 0
+
+  const PIPELINE = [
+    { label: 'Uploaded',     count: totalProcessed,  color: 'bg-blue-400',    border: 'border-blue-500/30',    text: 'text-blue-400' },
+    { label: 'Processing',   count: 0,               color: 'bg-purple-400',  border: 'border-purple-500/30',  text: 'text-purple-400' },
+    { label: 'Needs Review', count: pendingCount,    color: 'bg-amber-400',   border: 'border-amber-500/30',   text: 'text-amber-400' },
+    { label: 'Approved',     count: approvedCount,   color: 'bg-emerald-400', border: 'border-emerald-500/30', text: 'text-emerald-400' },
+    { label: 'Rejected',     count: rejectedCount,   color: 'bg-red-400',     border: 'border-red-500/30',     text: 'text-red-400' },
+  ]
+  
+  const pendingApprovalsList = recentDocs.filter(d => d.status === 'Pending Review' || d.status === 'Needs Attention')
+
   return (
     <div className="flex flex-col gap-6">
 
@@ -123,7 +145,7 @@ export default function DashboardOverview() {
           {
             label: 'Documents Processed', value: totalProcessed, suffix: '',
             icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
-            color: 'text-blue-400', bg: 'bg-blue-500/10', trend: '+12 this week',
+            color: 'text-blue-400', bg: 'bg-blue-500/10', trend: 'Lifetime total',
           },
           {
             label: 'Pending Review', value: pendingCount, suffix: '',
@@ -133,12 +155,12 @@ export default function DashboardOverview() {
           {
             label: 'Approved Expenses', value: approvedCount, suffix: '',
             icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
-            color: 'text-emerald-400', bg: 'bg-emerald-500/10', trend: '+4 this week',
+            color: 'text-emerald-400', bg: 'bg-emerald-500/10', trend: 'Lifetime total',
           },
           {
-            label: 'Total Expenses (Sep)', value: `₵${totalExpenses.toLocaleString('en-GH', { minimumFractionDigits: 0 })}`, suffix: '',
+            label: 'Total Approved Amount', value: `₵${totalExpenses.toLocaleString('en-GH', { minimumFractionDigits: 0 })}`, suffix: '',
             icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
-            color: 'text-[#ff6b8b]', bg: 'bg-[#ff6b8b]/10', trend: '+8.4% vs August',
+            color: 'text-[#ff6b8b]', bg: 'bg-[#ff6b8b]/10', trend: 'All time',
           },
         ].map((s) => (
           <div key={s.label} className="rounded-2xl border border-[#23252a] bg-[#0f1115] p-5 flex flex-col gap-3">
@@ -155,34 +177,8 @@ export default function DashboardOverview() {
       {/* ── Main content grid ───────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        {/* Expense chart */}
-        <div className="lg:col-span-2 rounded-2xl border border-[#23252a] bg-[#0f1115] p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h3 className="text-white font-semibold">Monthly Expenses</h3>
-              <p className="text-gray-500 text-xs mt-0.5">Approved vs Pending — last 6 months</p>
-            </div>
-            <div className="flex gap-4 text-xs text-gray-500">
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400" />Approved</span>
-              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400" />Pending</span>
-            </div>
-          </div>
-          <div className="flex items-end gap-3" style={{ height: '140px' }}>
-            {MONTHLY_STATS.map((m) => (
-              <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
-                <div className="w-full flex flex-col justify-end gap-0.5" style={{ height: '110px' }}>
-                  <div className="w-full rounded-t-sm bg-amber-400/70 transition-all" style={{ height: `${(m.pending / maxBar) * 100}px` }} title={`Pending ₵${m.pending.toLocaleString()}`} />
-                  <div className="w-full rounded-sm bg-emerald-400/70 transition-all" style={{ height: `${(m.approved / maxBar) * 100}px` }} title={`Approved ₵${m.approved.toLocaleString()}`} />
-                </div>
-                <span className="text-xs text-gray-500">{m.month}</span>
-                <span className="text-xs text-gray-600">₵{(m.total / 1000).toFixed(0)}k</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
         {/* AI Insights */}
-        <div className="rounded-2xl border border-[#23252a] bg-[#0f1115] p-6 flex flex-col gap-4">
+        <div className="lg:col-span-3 rounded-2xl border border-[#23252a] bg-[#0f1115] p-6 flex flex-col gap-4">
           <div className="flex items-center gap-2">
             <span className="bg-[#ff6b8b]/10 text-[#ff6b8b] p-1.5 rounded-lg">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
@@ -213,11 +209,6 @@ export default function DashboardOverview() {
               )
             })}
           </div>
-
-          <Link href="/dashboard/approvals"
-            className="text-center text-sm text-[#ff6b8b] hover:text-white border border-[#ff6b8b]/30 hover:border-[#ff6b8b] rounded-xl py-2.5 transition-colors">
-            Review Queue →
-          </Link>
         </div>
       </div>
 
@@ -242,70 +233,76 @@ export default function DashboardOverview() {
               </tr>
             </thead>
             <tbody>
-              {MOCK_DOCUMENTS.slice(0, 8).map((doc) => (
-                <tr key={doc.id} className="border-b border-[#1a1c22] hover:bg-[#1a1c22]/50 transition-colors group">
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-lg bg-[#1a1c22] flex items-center justify-center flex-shrink-0">
-                        <span className={`text-[10px] font-bold ${doc.fileType === 'PDF' ? 'text-red-400' : doc.fileType === 'JPG' ? 'text-blue-400' : 'text-green-400'}`}>
-                          {doc.fileType}
-                        </span>
-                      </div>
-                      <span className="text-sm text-white font-medium">{doc.vendor}</span>
-                    </div>
-                  </td>
-                  <td className="px-5 py-3.5 text-sm text-gray-400">{doc.type}</td>
-                  <td className="px-5 py-3.5 text-sm text-gray-400 whitespace-nowrap">
-                    {new Date(doc.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </td>
-                  <td className="px-5 py-3.5 text-sm text-white font-semibold">₵{doc.amount.toLocaleString()}</td>
-                  <td className="px-5 py-3.5 text-sm text-gray-400">{doc.category}</td>
-                  <td className="px-5 py-3.5">
-                    {doc.aiConfidence ? (
-                      <div className="flex items-center gap-1.5">
-                        <div className="w-12 h-1.5 bg-[#23252a] rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${doc.aiConfidence.total >= 95 ? 'bg-emerald-400' : doc.aiConfidence.total >= 85 ? 'bg-amber-400' : 'bg-red-400'}`}
-                            style={{ width: `${doc.aiConfidence.total}%` }}
-                          />
-                        </div>
-                        <span className={`text-xs font-medium ${doc.aiConfidence.total >= 95 ? 'text-emerald-400' : doc.aiConfidence.total >= 85 ? 'text-amber-400' : 'text-red-400'}`}>
-                          {doc.aiConfidence.total}%
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-gray-600">—</span>
-                    )}
-                  </td>
-                  <td className="px-5 py-3.5"><StatusBadge status={doc.status} /></td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      {(doc.status === 'Pending Review' || doc.status === 'Needs Attention') && (
-                        <Link href="/dashboard/approvals"
-                          className="text-xs text-[#ff6b8b] hover:text-white border border-[#ff6b8b]/30 hover:border-[#ff6b8b] px-2.5 py-1 rounded-lg transition-colors">
-                          Review
-                        </Link>
-                      )}
-                      <Link href="/dashboard/documents"
-                        className="text-xs text-gray-400 hover:text-white border border-[#23252a] hover:border-gray-500 px-2.5 py-1 rounded-lg transition-colors">
-                        View
-                      </Link>
-                    </div>
-                  </td>
+              {recentDocs.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-8 text-center text-gray-500">No documents found. Upload one to get started!</td>
                 </tr>
-              ))}
+              ) : (
+                recentDocs.map((doc: any) => (
+                  <tr key={doc.id} className="border-b border-[#1a1c22] hover:bg-[#1a1c22]/50 transition-colors group">
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-[#1a1c22] flex items-center justify-center flex-shrink-0">
+                          <span className={`text-[10px] font-bold ${doc.file_type === 'PDF' ? 'text-red-400' : doc.file_type === 'JPG' ? 'text-blue-400' : 'text-green-400'}`}>
+                            {doc.file_type || 'PDF'}
+                          </span>
+                        </div>
+                        <span className="text-sm text-white font-medium">{doc.vendor || 'Unknown'}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5 text-sm text-gray-400">{doc.doc_type || 'Invoice'}</td>
+                    <td className="px-5 py-3.5 text-sm text-gray-400 whitespace-nowrap">
+                      {new Date(doc.date || doc.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </td>
+                    <td className="px-5 py-3.5 text-sm text-white font-semibold">₵{(doc.total_amount || 0).toLocaleString()}</td>
+                    <td className="px-5 py-3.5 text-sm text-gray-400">{doc.category || 'Other'}</td>
+                    <td className="px-5 py-3.5">
+                      {doc.confidence_total !== undefined ? (
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-12 h-1.5 bg-[#23252a] rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${doc.confidence_total >= 95 ? 'bg-emerald-400' : doc.confidence_total >= 85 ? 'bg-amber-400' : 'bg-red-400'}`}
+                              style={{ width: `${doc.confidence_total}%` }}
+                            />
+                          </div>
+                          <span className={`text-xs font-medium ${doc.confidence_total >= 95 ? 'text-emerald-400' : doc.confidence_total >= 85 ? 'text-amber-400' : 'text-red-400'}`}>
+                            {doc.confidence_total}%
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-gray-600">—</span>
+                      )}
+                    </td>
+                    <td className="px-5 py-3.5"><StatusBadge status={doc.status} /></td>
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        {(doc.status === 'Pending Review' || doc.status === 'Needs Attention') && (
+                          <Link href="/dashboard/approvals"
+                            className="text-xs text-[#ff6b8b] hover:text-white border border-[#ff6b8b]/30 hover:border-[#ff6b8b] px-2.5 py-1 rounded-lg transition-colors">
+                            Review
+                          </Link>
+                        )}
+                        <Link href="/dashboard/documents"
+                          className="text-xs text-gray-400 hover:text-white border border-[#23252a] hover:border-gray-500 px-2.5 py-1 rounded-lg transition-colors">
+                          View
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
       </div>
 
       {/* ── Approval quick-look ─────────────────────────────────────────────── */}
-      {PENDING_APPROVALS.length > 0 && (
+      {pendingApprovalsList.length > 0 && (
         <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <svg className="text-amber-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              <h3 className="text-white font-semibold text-sm">{PENDING_APPROVALS.length} Documents Awaiting Approval</h3>
+              <h3 className="text-white font-semibold text-sm">{pendingApprovalsList.length} Documents Awaiting Approval</h3>
             </div>
             <Link href="/dashboard/approvals"
               className="text-xs text-amber-400 border border-amber-500/30 hover:border-amber-500 hover:bg-amber-500/10 px-3 py-1.5 rounded-lg transition-colors">
@@ -313,25 +310,25 @@ export default function DashboardOverview() {
             </Link>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {PENDING_APPROVALS.map((doc) => (
+            {pendingApprovalsList.map((doc: any) => (
               <div key={doc.id} className="rounded-xl border border-[#23252a] bg-[#0f1115] p-4 flex flex-col gap-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-white text-sm font-medium truncate">{doc.vendor}</span>
+                  <span className="text-white text-sm font-medium truncate">{doc.vendor || 'Unknown'}</span>
                   <StatusBadge status={doc.status} />
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>{doc.type}</span>
-                  <span className="font-semibold text-white">₵{doc.amount.toLocaleString()}</span>
+                  <span>{doc.doc_type || 'Invoice'}</span>
+                  <span className="font-semibold text-white">₵{(doc.total_amount || 0).toLocaleString()}</span>
                 </div>
                 <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>{doc.category}</span>
-                  <span>{new Date(doc.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                  <span>{doc.category || 'Other'}</span>
+                  <span>{new Date(doc.date || doc.uploaded_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
                 </div>
-                {doc.aiConfidence && (
+                {doc.confidence_total !== undefined && (
                   <div className="flex items-center gap-1.5 mt-1">
                     <span className="text-xs text-gray-500">AI confidence:</span>
-                    <span className={`text-xs font-semibold ${doc.aiConfidence.total >= 95 ? 'text-emerald-400' : 'text-amber-400'}`}>
-                      {doc.aiConfidence.total}%
+                    <span className={`text-xs font-semibold ${doc.confidence_total >= 95 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {doc.confidence_total}%
                     </span>
                   </div>
                 )}

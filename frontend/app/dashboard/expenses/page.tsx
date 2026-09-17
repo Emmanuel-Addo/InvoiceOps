@@ -1,6 +1,5 @@
 "use client"
-import React, { useState } from 'react'
-import { MOCK_EXPENSES, MONTHLY_STATS, CATEGORY_STATS, ExpenseRecord, ExpenseCategory } from '@/lib/mockData'
+import React, { useEffect, useState } from 'react'
 
 const StatusBadge = ({ status }: { status: string }) => {
   const styles: Record<string, string> = {
@@ -16,27 +15,60 @@ const StatusBadge = ({ status }: { status: string }) => {
   )
 }
 
-const maxBar = Math.max(...MONTHLY_STATS.map(m => m.total))
-const totalExpenses = MOCK_EXPENSES.reduce((s, e) => s + e.amount, 0)
-const approvedTotal = MOCK_EXPENSES.filter(e => e.status === 'Approved').reduce((s, e) => s + e.amount, 0)
-const pendingTotal = MOCK_EXPENSES.filter(e => e.status === 'Pending').reduce((s, e) => s + e.amount, 0)
-const avgExpense = totalExpenses / MOCK_EXPENSES.length
-
 export default function ExpensesPage() {
+  const [loading, setLoading] = useState(true)
+  const [expenses, setExpenses] = useState<any[]>([])
+  
   const [search, setSearch] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState<ExpenseCategory | 'All'>('All')
+  const [categoryFilter, setCategoryFilter] = useState<string>('All')
   const [statusFilter, setStatusFilter] = useState<string>('All')
 
-  const filtered = MOCK_EXPENSES.filter((e) => {
-    const matchSearch = e.vendor.toLowerCase().includes(search.toLowerCase()) || e.description.toLowerCase().includes(search.toLowerCase())
+  useEffect(() => {
+    async function fetchExpenses() {
+      try {
+        const res = await fetch('http://localhost:8000/api/expenses')
+        const data = await res.json()
+        setExpenses(data.expenses || [])
+      } catch (err) {
+        console.error("Failed to load expenses data", err)
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchExpenses()
+  }, [])
+
+  if (loading) {
+    return <div className="p-8 text-white">Loading expenses...</div>
+  }
+
+  // Calculate totals
+  const totalExpensesAmount = expenses.reduce((s, e) => s + (e.amount || 0), 0)
+  const approvedTotal = expenses.filter(e => true).reduce((s, e) => s + (e.amount || 0), 0) // Currently all in expenses table are Approved
+  const pendingTotal = 0 // Expenses table only stores approved ones in this schema
+  const avgExpense = expenses.length > 0 ? totalExpensesAmount / expenses.length : 0
+
+  const filtered = expenses.filter((e) => {
+    const matchSearch = (e.vendor || '').toLowerCase().includes(search.toLowerCase())
     const matchCat = categoryFilter === 'All' || e.category === categoryFilter
-    const matchStatus = statusFilter === 'All' || e.status === statusFilter
+    const matchStatus = statusFilter === 'All' || 'Approved' === statusFilter // They are all approved
     return matchSearch && matchCat && matchStatus
   })
 
+  // Calculate category stats safely
+  const catTotals: Record<string, number> = {}
+  expenses.forEach(e => {
+    const cat = e.category || 'Other'
+    catTotals[cat] = (catTotals[cat] || 0) + (e.amount || 0)
+  })
+  
+  const categoryStats = Object.entries(catTotals).map(([category, amount]) => {
+    return { category, amount, percentage: totalExpensesAmount ? Math.round((amount / totalExpensesAmount) * 100) : 0 }
+  }).sort((a, b) => b.amount - a.amount)
+
   const handleExportCSV = () => {
-    const headers = 'Date,Vendor,Description,Category,Amount (GHS),Payment Method,Status\n'
-    const rows = filtered.map(e => `${e.date},"${e.vendor}","${e.description}","${e.category}",${e.amount},"${e.paymentMethod}","${e.status}"`).join('\n')
+    const headers = 'Date,Vendor,Category,Amount (GHS),Payment Method,Status\n'
+    const rows = filtered.map(e => `${e.date || ''},"${e.vendor || 'Unknown'}","${e.category || 'Other'}",${e.amount || 0},"${e.payment_method || ''}","Approved"`).join('\n')
     const blob = new Blob([headers + rows], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -46,7 +78,7 @@ export default function ExpensesPage() {
     URL.revokeObjectURL(url)
   }
 
-  const categories: (ExpenseCategory | 'All')[] = [
+  const categories = [
     'All', 'Office Supplies', 'Transport', 'Utilities', 'Rent', 'Food & Beverage',
     'Marketing', 'Equipment', 'Professional Services', 'Inventory', 'Other'
   ]
@@ -57,7 +89,7 @@ export default function ExpensesPage() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Expenses</h1>
-          <p className="text-gray-400 text-sm mt-1">Track and manage all approved and pending business expenses.</p>
+          <p className="text-gray-400 text-sm mt-1">Track and manage all approved business expenses.</p>
         </div>
         <button onClick={handleExportCSV} className="flex items-center gap-2 border border-[#23252a] hover:border-[#ff6b8b]/50 text-gray-300 hover:text-white text-sm font-medium px-5 py-2.5 rounded-xl transition-colors w-fit">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -68,7 +100,7 @@ export default function ExpensesPage() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {[
-          { label: 'Total Expenses', value: `₵${totalExpenses.toLocaleString()}`, color: 'text-[#ff6b8b]', bg: 'bg-[#ff6b8b]/10' },
+          { label: 'Total Expenses', value: `₵${totalExpensesAmount.toLocaleString()}`, color: 'text-[#ff6b8b]', bg: 'bg-[#ff6b8b]/10' },
           { label: 'Approved', value: `₵${approvedTotal.toLocaleString()}`, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
           { label: 'Pending', value: `₵${pendingTotal.toLocaleString()}`, color: 'text-amber-400', bg: 'bg-amber-500/10' },
           { label: 'Average Expense', value: `₵${avgExpense.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`, color: 'text-blue-400', bg: 'bg-blue-500/10' },
@@ -82,34 +114,18 @@ export default function ExpensesPage() {
 
       {/* Chart + Category breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Monthly chart */}
-        <div className="lg:col-span-2 rounded-2xl border border-[#23252a] bg-[#0f1115] p-6">
-          <h3 className="text-white font-semibold mb-1">Monthly Expenses</h3>
-          <p className="text-gray-500 text-xs mb-6">Last 6 months — approved vs pending</p>
-          <div className="flex items-end gap-3 h-40">
-            {MONTHLY_STATS.map((m) => (
-              <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
-                <div className="w-full flex flex-col justify-end gap-0.5" style={{ height: '120px' }}>
-                  <div className="w-full rounded-sm bg-amber-400/70" style={{ height: `${(m.pending / maxBar) * 110}px` }} title={`Pending: ₵${m.pending.toLocaleString()}`} />
-                  <div className="w-full rounded-sm bg-emerald-400/70" style={{ height: `${(m.approved / maxBar) * 110}px` }} title={`Approved: ₵${m.approved.toLocaleString()}`} />
-                </div>
-                <span className="text-xs text-gray-500">{m.month}</span>
-                <span className="text-xs text-gray-600">₵{(m.total / 1000).toFixed(0)}k</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
+        
         {/* Category breakdown */}
-        <div className="rounded-2xl border border-[#23252a] bg-[#0f1115] p-6">
+        <div className="lg:col-span-3 rounded-2xl border border-[#23252a] bg-[#0f1115] p-6">
           <h3 className="text-white font-semibold mb-1">By Category</h3>
-          <p className="text-gray-500 text-xs mb-4">This month's breakdown</p>
+          <p className="text-gray-500 text-xs mb-4">Expense distribution</p>
           <div className="flex flex-col gap-3">
-            {CATEGORY_STATS.slice(0, 6).map((c) => (
+            {categoryStats.length === 0 ? <p className="text-gray-500 text-sm">No expenses found.</p> : null}
+            {categoryStats.slice(0, 6).map((c) => (
               <div key={c.category}>
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-gray-400 truncate max-w-[130px]">{c.category}</span>
-                  <span className="text-white font-medium">₵{c.amount.toLocaleString()}</span>
+                  <span className="text-white font-medium">₵{(c.amount || 0).toLocaleString()}</span>
                 </div>
                 <div className="h-1.5 bg-[#23252a] rounded-full overflow-hidden">
                   <div className="h-full rounded-full bg-[#ff6b8b]" style={{ width: `${c.percentage}%` }} />
@@ -124,16 +140,14 @@ export default function ExpensesPage() {
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-48">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" placeholder="Search vendor or description…" value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-[#0f1115] border border-[#23252a] rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#ff6b8b]/50" />
+          <input type="text" placeholder="Search vendor…" value={search} onChange={(e) => setSearch(e.target.value)} className="w-full bg-[#0f1115] border border-[#23252a] rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-[#ff6b8b]/50" />
         </div>
-        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value as ExpenseCategory | 'All')} className="bg-[#0f1115] border border-[#23252a] rounded-xl px-4 py-2.5 text-sm text-gray-300 focus:outline-none focus:border-[#ff6b8b]/50">
+        <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="bg-[#0f1115] border border-[#23252a] rounded-xl px-4 py-2.5 text-sm text-gray-300 focus:outline-none focus:border-[#ff6b8b]/50">
           {categories.map(c => <option key={c} value={c}>{c === 'All' ? 'All Categories' : c}</option>)}
         </select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[#0f1115] border border-[#23252a] rounded-xl px-4 py-2.5 text-sm text-gray-300 focus:outline-none focus:border-[#ff6b8b]/50">
           <option value="All">All Statuses</option>
           <option value="Approved">Approved</option>
-          <option value="Pending">Pending</option>
-          <option value="Needs Correction">Needs Correction</option>
         </select>
       </div>
 
@@ -143,23 +157,28 @@ export default function ExpensesPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#23252a]">
-                {['Date', 'Vendor', 'Description', 'Category', 'Amount', 'Payment Method', 'Status'].map(h => (
+                {['Date', 'Vendor', 'Category', 'Amount', 'Payment Method', 'Status'].map(h => (
                   <th key={h} className="text-left text-xs text-gray-500 font-medium px-5 py-3">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((e: ExpenseRecord) => (
-                <tr key={e.id} className="border-b border-[#1a1c22] hover:bg-[#1a1c22]/50 transition-colors">
-                  <td className="px-5 py-4 text-sm text-gray-400 whitespace-nowrap">{new Date(e.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</td>
-                  <td className="px-5 py-4 text-sm text-white font-medium">{e.vendor}</td>
-                  <td className="px-5 py-4 text-sm text-gray-400 max-w-xs truncate">{e.description}</td>
-                  <td className="px-5 py-4 text-sm text-gray-400">{e.category}</td>
-                  <td className="px-5 py-4 text-sm text-white font-semibold">₵{e.amount.toLocaleString()}</td>
-                  <td className="px-5 py-4 text-sm text-gray-400">{e.paymentMethod}</td>
-                  <td className="px-5 py-4"><StatusBadge status={e.status} /></td>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-5 py-8 text-center text-gray-500">No expenses found.</td>
                 </tr>
-              ))}
+              ) : (
+                filtered.map((e: any) => (
+                  <tr key={e.id} className="border-b border-[#1a1c22] hover:bg-[#1a1c22]/50 transition-colors">
+                    <td className="px-5 py-4 text-sm text-gray-400 whitespace-nowrap">{new Date(e.date || e.approved_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</td>
+                    <td className="px-5 py-4 text-sm text-white font-medium">{e.vendor || 'Unknown'}</td>
+                    <td className="px-5 py-4 text-sm text-gray-400">{e.category || 'Other'}</td>
+                    <td className="px-5 py-4 text-sm text-white font-semibold">₵{(e.amount || 0).toLocaleString()}</td>
+                    <td className="px-5 py-4 text-sm text-gray-400">{e.payment_method || ''}</td>
+                    <td className="px-5 py-4"><StatusBadge status="Approved" /></td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
