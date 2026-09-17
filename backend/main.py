@@ -71,7 +71,7 @@ EXPENSE_CATEGORIES = [
 
 
 
-PAYMENT_METHODS = ["MTN MoMo", "Vodafone Cash", "Bank Transfer", "Cash", "Card"]
+PAYMENT_METHODS = ["MTN MoMo", "Vodafone Cash", "Bank Transfer", "Cash", "Card", "Other"]
 
 
 # ── Helper: AI extraction ──────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ Return ONLY a valid JSON object with exactly these keys:
 - tax_amount (float)
 - total_amount (float)
 - category (string from: Office Supplies, Transport, Utilities, Rent, Food & Beverage, Marketing, Equipment, Professional Services, Inventory, Other)
-- payment_method (string from: MTN MoMo, Vodafone Cash, Bank Transfer, Cash, Card)
+- payment_method (string from: MTN MoMo, Vodafone Cash, Bank Transfer, Cash, Card, Other)
 - confidence_vendor (float between 0-100)
 - confidence_date (float between 0-100)
 - confidence_total (float between 0-100)
@@ -150,6 +150,10 @@ Do not include any markdown, explanation, or code blocks outside the JSON object
 
 
 # ── Health ────────────────────────────────────────────────────────────────────
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to the InvoiceOps API. The backend is running successfully!"}
+
 @app.get("/api/health")
 def health_check():
     # Quick connectivity test
