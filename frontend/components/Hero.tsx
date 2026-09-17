@@ -29,7 +29,7 @@ const Hero = () => {
                         {/* Logo */}
                         <a href="/" className="flex items-center gap-2">
                             <span className="text-xl font-bold text-white tracking-tight">
-                                CreditBridge
+                                InvoiceOps
                             </span>
                         </a>
 
@@ -117,7 +117,7 @@ const Hero = () => {
 
                         {/* Desktop CTA */}
                         <a
-                            href="/dashboard"
+                            href="/login"
                             className="bg-[#ff6b8b] hidden md:flex text-black px-10 py-3 rounded-full text-sm font-bold transition cursor-pointer items-center justify-center"
                         >
                             Get Started
@@ -155,29 +155,27 @@ const Hero = () => {
                     </p>
 
                     <p className="text-sm text-gray-300">
-                        AI-Powered Credit Intelligence
+                        AI-Powered Expense Operations
                     </p>
                 </div>
 
                 {/* Main Heading */}
                 <h1 className="text-6xl md:text-7xl text-center font-bold text-white leading-[1.15] max-w-[850px] mt-8 px-4 tracking-tight">
-                    Bridging the Credit Gap for Informal Workers
+                    Automate Invoice & Expense Operations with AI
                 </h1>
 
                 {/* Description */}
                 <p className="text-base md:text-lg text-center max-w-[650px] mt-6 text-gray-400 leading-relaxed px-4">
-                    Turn financial transaction history and personal financial insights
-                    into an explainable credit profile that helps lenders make
-                    better-informed decisions.
+                    Upload invoices and receipts, and let AI instantly extract, categorize, and prepare your expenses for human review. Stop manual data entry.
                 </p>
 
                 {/* CTA Buttons */}
                 <div className="flex gap-4 mt-10">
                     <a
-                        href="/dashboard"
+                        href="/login"
                         className="bg-[#ff6b8b] text-black px-10 py-3.5 rounded-full text-sm font-bold transition cursor-pointer flex items-center justify-center"
                     >
-                        Build Your Profile
+                        Try it Now
                     </a>
 
                     <a

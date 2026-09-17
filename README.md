@@ -1,86 +1,40 @@
-# CreditBridge
+# AI Invoice & Expense Assistant
 
-**Bridging the Credit Gap for Ghana's Informal Workers**
+**Automate your business expenses with AI OCR, Document Understanding, and Human-in-the-loop Approvals.**
 
 ## The Problem
 
-Millions of informal workers in Ghana have real income and years of MoMo transaction history, but remain locked out of formal credit because banks require payslips, registered business documents, and collateral that informal workers do not have.
+Businesses manually process large numbers of invoices, receipts, and expenses. This creates massive administrative overhead, leads to poor record-keeping, and slows down accounting teams with repetitive data entry.
 
-## Solution
+## The Solution
 
-CreditBridge is an AI system that converts an informal worker's MoMo transaction history into a structured, lender-readable credit profile. It identifies:
+This platform is an AI-powered Invoice & Expense Operations Assistant that automates the processing of financial documents. 
 
-- Income regularity and patterns
-- Savings consistency
-- Spending behaviour
-- Repayment capacity signals
-- Creditworthiness evidence a lender can act on
+It helps finance teams by:
+1. **Reading** invoices and receipts using OCR.
+2. **Extracting** structured financial information (Vendor, Amount, Tax, Date).
+3. **Categorising** expenses automatically.
+4. **Detecting** anomalies (missing fields, unusual amounts).
+5. **Enabling** humans to review and approve extracted records in a beautiful UI.
+6. **Exporting** approved records to CSV or accounting software.
 
-## AI Opportunities
+## Features
 
-- Transaction pattern analysis
-- Alternative credit scoring models
-- LLMs for plain-language score explanation
-- Anomaly detection
-- Voice AI for low-literacy users
-
-## Target Implementers
-
-- Microfinance institutions
-- Rural and Community Banks (RCBs)
-- Fintech lenders
-- Development Bank Ghana (DBG)
-- Mobile money operators (as data partners)
-
-## Success Vision
-
-Reduce the time for an informal worker to prepare a credit application from weeks to under 48 hours, while giving lenders structured evidence they can use to make faster, more confident lending decisions.
+- **Document Upload**: Drag-and-drop interface for PDFs, JPGs, and PNGs.
+- **AI Extraction Queue**: A "human-in-the-loop" review queue where AI extracts fields and assigns a confidence score, but a human approves it.
+- **Expense Dashboard**: Visualise monthly spending, vendor distribution, and category breakdowns.
+- **Secure Authentication**: Protected by Supabase Auth.
 
 ## Tech Stack
 
-- **Backend:** Python (FastAPI)
-- **Frontend:** React (Vite)
-- **AI/ML:** Scikit-learn, Pandas, NumPy
-- **Data Processing:** MoMo transaction CSV parsing
+- **Frontend**: Next.js, App Router, TypeScript, Tailwind CSS
+- **Authentication**: Supabase
+- **UI Components**: Reusable Tailwind components with inline SVGs
 
 ## Getting Started
 
-### Prerequisites
-
-- Python 3.8+
-- Node.js 16+
-- npm or yarn
-
-### Backend Setup
-
-```bash
-cd backend
-pip install -r requirements.txt
-python main.py
-```
-
-### Frontend Setup
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-## Project Structure
-
-```
-CreditBridge/
-├── backend/          # FastAPI backend with AI credit scoring
-├── frontend/         # React frontend application
-├── Ghana_CreditBridge_Opportunity.pdf
-└── README.md
-```
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
-
-## License
-
-MIT License
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Set up environment variables in `.env.local`
+4. Run the development server: `npm run dev`
+5. Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.

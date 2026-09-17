@@ -1,35 +1,55 @@
 """
-CreditBridge FastAPI Backend
-----------------------------
-Endpoints:
-  GET  /api/health       — liveness check
-  POST /api/analyze      — upload a MoMo CSV, get credit profile + AI insights
-  POST /api/analyze-demo — run analysis on built-in sample data (no upload needed)
-  GET  /api/sample-csv   — download a ready-made sample MoMo CSV for testing
-"""
-import io
-import csv
-import os
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from dotenv import load_dotenv
+InvoiceOps FastAPI Backend — Supabase Edition
+----------------------------------------------
+All documents and expenses are persisted in Supabase.
 
-from services.parser import parse_momo_csv
-from services.scorer import calculate_credit_score
-from services.groq_client import generate_credit_insights
-from services.auth import get_current_user
-from data.sample_transactions import SAMPLE_TRANSACTIONS
+Endpoints:
+  GET  /api/health              — liveness check
+  POST /api/upload-document     — upload invoice/receipt, AI extracts data, saves to DB
+  GET  /api/documents           — list documents from Supabase
+  POST /api/approve/{doc_id}    — approve a document (triggers expense creation)
+  POST /api/reject/{doc_id}     — reject a document
+  GET  /api/expenses            — list approved expenses from Supabase
+  GET  /api/reports/summary     — financial summary from real data
+"""
+
+import os
+import uuid
+import random
+import base64
+import json
+import pymupdf as fitz
+from datetime import datetime, date
+from typing import Optional
+
+from fastapi import FastAPI, UploadFile, File, HTTPException, Path, Query
+from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+from supabase import create_client, Client
 
 load_dotenv()
 
+# ── Supabase client ───────────────────────────────────────────────────────────
+SUPABASE_URL     = os.environ.get("SUPABASE_URL", "")
+SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+
+if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+    raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set in backend/.env")
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+from google import genai
+from google.genai import types
+_gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+# ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
-    title="CreditBridge API",
-    description="AI-powered credit intelligence for Ghana's informal workers",
-    version="1.0.0",
+    title="InvoiceOps API",
+    description="AI-Powered Invoice & Expense Operations — Supabase backend",
+    version="2.1.0",
 )
 
-# ── CORS: allow the Next.js dev server ────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -42,125 +62,296 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Constants ─────────────────────────────────────────────────────────────────
+EXPENSE_CATEGORIES = [
+    "Office Supplies", "Transport", "Utilities", "Rent",
+    "Food & Beverage", "Marketing", "Equipment",
+    "Professional Services", "Inventory", "Other",
+]
+
+
+
+PAYMENT_METHODS = ["MTN MoMo", "Vodafone Cash", "Bank Transfer", "Cash", "Card"]
+
+
+# ── Helper: AI extraction ──────────────────────────────────────────────────────
+async def ai_extract(file_bytes: bytes, content_type: str, filename: str, doc_type: str) -> dict:
+    """
+    Real AI extraction using Google Gemini API (gemini-2.5-flash).
+    """
+    if not _gemini_client:
+        raise ValueError("GEMINI_API_KEY is not set.")
+
+    # Convert PDF to image if necessary
+    if content_type == "application/pdf" or filename.lower().endswith(".pdf"):
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        page = doc.load_page(0) # First page only
+        pix = page.get_pixmap()
+        img_bytes = pix.tobytes("jpeg")
+        mime = "image/jpeg"
+    else:
+        img_bytes = file_bytes
+        mime = content_type if content_type else "image/jpeg"
+    
+    prompt = f"""Extract information from this {doc_type}. 
+Return ONLY a valid JSON object with exactly these keys:
+- vendor (string, name of the vendor/merchant)
+- invoice_number (string, the invoice or receipt number)
+- date (string, ISO format YYYY-MM-DD)
+- currency (string, e.g., GHS, USD)
+- subtotal (float)
+- tax_amount (float)
+- total_amount (float)
+- category (string from: Office Supplies, Transport, Utilities, Rent, Food & Beverage, Marketing, Equipment, Professional Services, Inventory, Other)
+- payment_method (string from: MTN MoMo, Vodafone Cash, Bank Transfer, Cash, Card)
+- confidence_vendor (float between 0-100)
+- confidence_date (float between 0-100)
+- confidence_total (float between 0-100)
+- confidence_category (float between 0-100)
+- warnings (list of strings, any issues like missing tax, unclear amounts, etc.)
+
+Do not include any markdown, explanation, or code blocks outside the JSON object.
+"""
+
+    try:
+        response = _gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[
+                prompt,
+                types.Part.from_bytes(data=img_bytes, mime_type=mime)
+            ]
+        )
+        
+        raw_json = response.text.strip()
+        start = raw_json.find("{")
+        end = raw_json.rfind("}") + 1
+        if start == -1 or end == 0:
+            raise ValueError("No JSON found in response")
+        return json.loads(raw_json[start:end])
+    except Exception as e:
+        print(f"[Gemini Vision] extraction failed: {e}")
+        # fallback to empty dict structure
+        return {
+            "vendor": "Unknown",
+            "invoice_number": "Unknown",
+            "date": date.today().isoformat(),
+            "currency": "GHS",
+            "subtotal": 0.0,
+            "tax_amount": 0.0,
+            "total_amount": 0.0,
+            "category": "Other",
+            "payment_method": "Cash",
+            "confidence_vendor": 0.0,
+            "confidence_date": 0.0,
+            "confidence_total": 0.0,
+            "confidence_category": 0.0,
+            "warnings": [f"AI extraction failed: {str(e)}"]
+        }
+
 
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "service": "CreditBridge API", "version": "1.0.0"}
-
-
-# ── Upload & Analyse ──────────────────────────────────────────────────────────
-@app.post("/api/analyze")
-async def analyze_upload(file: UploadFile = File(...), user = Depends(get_current_user)):
-    """
-    Upload a MoMo transaction CSV.
-    Returns a full Credit Intelligence Profile with Groq AI insights.
-    Requires an authenticated user token.
-    """
-    if not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Only CSV files are supported.")
-
-    content = await file.read()
-
-    # Parse
+    # Quick connectivity test
     try:
-        transactions = parse_momo_csv(content)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        supabase.table("documents").select("id").limit(1).execute()
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)}"
 
-    if len(transactions) < 5:
+    return {
+        "status":     "ok",
+        "service":    "InvoiceOps API",
+        "version":    "2.1.0",
+        "database":   db_status,
+        "ai_ready":   GEMINI_API_KEY is not None,
+    }
+
+
+# ── Upload & Extract ──────────────────────────────────────────────────────────
+@app.post("/api/upload-document")
+async def upload_document(
+    file:     UploadFile = File(...),
+    doc_type: str        = "Invoice",
+):
+    """
+    Accept a PDF, JPG, PNG, WEBP, or HEIC file.
+    Runs AI extraction, saves the document record to Supabase.
+    Returns the full extracted document record.
+    """
+    allowed = {
+        "application/pdf", "image/jpeg", "image/jpg",
+        "image/png", "image/webp", "image/heic", "image/heif",
+    }
+    ct       = file.content_type or ""
+    filename = file.filename or "document"
+
+    if ct not in allowed and not filename.lower().endswith(".pdf"):
         raise HTTPException(
-            status_code=422,
-            detail=(
-                "Not enough transactions found (minimum 5 required). "
-                "Please check that your CSV has a Date column and Amount column, "
-                "or download the sample CSV to see the expected format."
-            ),
+            status_code=400,
+            detail="Unsupported file type. Upload a PDF, JPG, PNG, WEBP, or HEIC file.",
         )
 
-    # Score
-    profile = calculate_credit_score(transactions)
+    content = await file.read()
+    if len(content) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File too large. Maximum 20 MB.")
 
-    # AI insights via Groq
+    # AI extraction
+    extracted = await ai_extract(content, ct, filename, doc_type)
+
+    doc_record = {
+        "id":           str(uuid.uuid4()),
+        "filename":     filename,
+        "file_type":    ct.split("/")[-1].upper() if ct else "PDF",
+        "file_size":    len(content),
+        "doc_type":     doc_type,
+        "status":       "Pending Review",
+        "uploaded_at":  datetime.utcnow().isoformat() + "Z",
+        **extracted,
+    }
+
+    # Save to Supabase
     try:
-        profile["ai_insights"] = generate_credit_insights(profile)
-    except Exception as exc:
-        print(f"[warn] Groq failed, using fallback: {exc}")
-        profile["ai_insights"] = _fallback_ai(profile)
+        result = supabase.table("documents").insert(doc_record).execute()
+        saved  = result.data[0] if result.data else doc_record
+    except Exception as e:
+        # If DB fails, return extracted data anyway so the frontend still works
+        print(f"[warn] Supabase insert failed: {e}")
+        saved = doc_record
 
-    return profile
+    # Normalise response for frontend
+    saved["ai_confidence"] = {
+        "vendor":   saved.get("confidence_vendor", 0),
+        "date":     saved.get("confidence_date", 0),
+        "total":    saved.get("confidence_total", 0),
+        "category": saved.get("confidence_category", 0),
+    }
 
-
-# ── Demo (no upload required) ─────────────────────────────────────────────────
-@app.post("/api/analyze-demo")
-def analyze_demo():
-    """
-    Run the full analysis pipeline on built-in sample data.
-    Useful for demos, reviewers, and testing the frontend.
-    """
-    profile = calculate_credit_score(SAMPLE_TRANSACTIONS)
-    try:
-        profile["ai_insights"] = generate_credit_insights(profile)
-    except Exception as exc:
-        print(f"[warn] Groq failed, using fallback: {exc}")
-        profile["ai_insights"] = _fallback_ai(profile)
-    return profile
-
-
-# ── Sample CSV download ───────────────────────────────────────────────────────
-@app.get("/api/sample-csv")
-def download_sample_csv():
-    """Return a downloadable sample MoMo CSV the user can upload to test the app."""
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Transaction Date", "Reference", "Description", "Type", "Amount", "Balance"])
-
-    balance = 2000.0
-    for tx in SAMPLE_TRANSACTIONS:
-        amount  = tx["amount"]
-        balance = balance + amount if tx["type"] == "income" else balance - amount
-        writer.writerow([
-            tx["date"],
-            f"REF{SAMPLE_TRANSACTIONS.index(tx)+1:04d}",
-            tx["description"],
-            "Credit" if tx["type"] == "income" else "Debit",
-            f"{amount:.2f}",
-            f"{max(balance, 0):.2f}",
-        ])
-
-    output.seek(0)
-    return StreamingResponse(
-        iter([output.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=sample_momo_transactions.csv"},
-    )
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-def _fallback_ai(profile: dict) -> dict:
-    score = profile["overall_score"]
-    label = profile["score_label"]
-    s     = profile["summary"]
     return {
-        "overview": (
-            f"Your Credit Intelligence Score is {score}/100 ({label}). "
-            f"Your {s['num_months']}-month transaction history shows a savings rate "
-            f"of {s['savings_rate']}% — a positive signal for lenders."
-        ),
-        "profile": (
-            f"Applicant has generated GHS {s['total_income']:,.0f} in income over "
-            f"{s['num_months']} months with a net savings of GHS {s['total_savings']:,.0f}. "
-            "Cash flow analysis indicates capacity to service loan repayments."
-        ),
-        "strengths": [
-            "Consistent mobile money transaction activity",
-            "Positive net cash flow maintained across the review period",
-            "Regular savings pattern visible in transaction history",
-        ],
-        "improvements": [
-            f"Reduce spending in '{s['largest_expense']}' category to boost your savings rate",
-            "Increase the diversity of income sources to strengthen your income consistency score",
-        ],
+        "success":     True,
+        "document_id": saved["id"],
+        "message":     "Document uploaded and processed. Ready for human review.",
+        "data":        saved,
+    }
+
+
+# ── List Documents ────────────────────────────────────────────────────────────
+@app.get("/api/documents")
+def list_documents(
+    status:   Optional[str] = Query(None),
+    doc_type: Optional[str] = Query(None),
+    limit:    int            = Query(50, ge=1, le=200),
+):
+    """Return documents from Supabase, filtered by status and/or type."""
+    try:
+        q = supabase.table("documents").select("*").order("uploaded_at", desc=True).limit(limit)
+        if status:
+            q = q.eq("status", status)
+        if doc_type:
+            q = q.eq("doc_type", doc_type)
+        result = q.execute()
+        docs   = result.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    return {"documents": docs, "total": len(docs)}
+
+
+# ── Approve ───────────────────────────────────────────────────────────────────
+@app.post("/api/approve/{doc_id}")
+def approve_document(doc_id: str = Path(...)):
+    """
+    Mark a document as Approved.
+    The Supabase trigger `on_document_approved` automatically creates
+    a matching row in the `expenses` table.
+    """
+    try:
+        result = supabase.table("documents").update({
+            "status":      "Approved",
+            "approved_at": datetime.utcnow().isoformat() + "Z",
+        }).eq("id", doc_id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        return {"success": True, "message": "Document approved.", "document_id": doc_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+# ── Reject ────────────────────────────────────────────────────────────────────
+@app.post("/api/reject/{doc_id}")
+def reject_document(doc_id: str = Path(...)):
+    """Mark a document as Rejected."""
+    try:
+        result = supabase.table("documents").update({
+            "status":      "Rejected",
+            "rejected_at": datetime.utcnow().isoformat() + "Z",
+        }).eq("id", doc_id).execute()
+
+        if not result.data:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        return {"success": True, "message": "Document rejected.", "document_id": doc_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+# ── Expenses ──────────────────────────────────────────────────────────────────
+@app.get("/api/expenses")
+def list_expenses(limit: int = Query(100, ge=1, le=500)):
+    """Return all approved expenses from Supabase."""
+    try:
+        result = (
+            supabase.table("expenses")
+            .select("*")
+            .order("approved_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        expenses = result.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    total = sum(e.get("amount", 0) for e in expenses)
+    return {
+        "expenses":     expenses,
+        "total":        len(expenses),
+        "total_amount": round(total, 2),
+        "currency":     "GHS",
+    }
+
+
+# ── Reports ───────────────────────────────────────────────────────────────────
+@app.get("/api/reports/summary")
+def reports_summary():
+    """Return a live financial summary from Supabase data."""
+    try:
+        all_docs = supabase.table("documents").select("status, total_amount, category").execute().data or []
+        expenses = supabase.table("expenses").select("amount, category").execute().data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    approved = [d for d in all_docs if d.get("status") == "Approved"]
+    pending  = [d for d in all_docs if d.get("status") == "Pending Review"]
+
+    category_totals: dict[str, float] = {}
+    for e in expenses:
+        cat = e.get("category", "Other")
+        category_totals[cat] = round(category_totals.get(cat, 0) + (e.get("amount") or 0), 2)
+
+    return {
+        "total_documents":      len(all_docs),
+        "approved_count":       len(approved),
+        "pending_count":        len(pending),
+        "total_approved_amount": round(sum(d.get("total_amount") or 0 for d in approved), 2),
+        "total_pending_amount":  round(sum(d.get("total_amount") or 0 for d in pending), 2),
+        "currency":             "GHS",
+        "category_breakdown":   category_totals,
     }
 
 

@@ -22,3 +22,11 @@ body {
 ::-webkit-scrollbar-track { background: #0a0a0c; }
 ::-webkit-scrollbar-thumb { background: #23252a; border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: #333; }
+
+button, [role="button"], select, label[for], a, input[type="file"] {
+  cursor: pointer;
+}
+button:disabled {
+  cursor: not-allowed;
+}
+

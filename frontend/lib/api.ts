@@ -4,6 +4,7 @@
  */
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+import { supabase } from "./supabase";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -123,11 +124,17 @@ export function clearProfile(): void {
 
 /** Upload a CSV file and receive a full credit profile. */
 export async function analyzeCSV(file: File): Promise<CreditProfile> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+
   const formData = new FormData();
   formData.append("file", file);
 
   const res = await fetch(`${API_BASE}/api/analyze`, {
     method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
     body: formData,
   });
 
@@ -141,7 +148,15 @@ export async function analyzeCSV(file: File): Promise<CreditProfile> {
 
 /** Run analysis on the built-in demo data — no file required. */
 export async function analyzeDemo(): Promise<CreditProfile> {
-  const res = await fetch(`${API_BASE}/api/analyze-demo`, { method: "POST" });
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+
+  const res = await fetch(`${API_BASE}/api/analyze-demo`, { 
+    method: "POST",
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Demo failed" }));

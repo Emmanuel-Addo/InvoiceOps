@@ -1,173 +1,356 @@
 "use client"
-import React, { useState, useEffect } from 'react'
+import React from 'react'
 import Link from 'next/link'
-import StatCard from '@/components/dashboard/StatCard'
-import CashFlowChart from '@/components/dashboard/CashFlowChart'
-import FinancialHealth from '@/components/dashboard/FinancialHealth'
-import AIInsights from '@/components/dashboard/AIInsights'
-import RecentTransactions from '@/components/dashboard/RecentTransactions'
-import { mockUser, mockSummary, mockCashFlowData, mockFinancialHealth, mockTransactions, mockAIInsights } from '@/data/mockData'
-import { loadProfile, CreditProfile } from '@/lib/api'
+import { MOCK_DOCUMENTS, MONTHLY_STATS, PENDING_APPROVALS } from '@/lib/mockData'
 
-export default function OverviewDashboard() {
-  const [realProfile, setRealProfile] = useState<CreditProfile | null>(null)
-
-  // Load real profile from localStorage on mount
-  useEffect(() => {
-    const profile = loadProfile()
-    setRealProfile(profile)
-  }, [])
-
-  // ── Decide which data to show ─────────────────────────────────────────────
-  const isReal = realProfile !== null
-
-  const creditScore    = isReal ? realProfile.overall_score          : mockUser.creditScore
-  const scoreLabel     = isReal ? realProfile.score_label            : mockUser.scoreLabel
-  const totalIncome    = isReal ? realProfile.summary.total_income   : mockSummary.totalIncome
-  const totalExpenses  = isReal ? realProfile.summary.total_expenses : mockSummary.totalExpenses
-  const totalSavings   = isReal ? realProfile.summary.total_savings  : mockSummary.totalSavings
-  const incomeTrend    = isReal ? `${realProfile.summary.monthly_income_trend >= 0 ? '+' : ''}${realProfile.summary.monthly_income_trend}%` : "+5.2%"
-  const cashFlowData   = isReal ? realProfile.cashflow_data          : mockCashFlowData
-  const aiOverview     = isReal ? realProfile.ai_insights.overview   : mockAIInsights.overview
-  const transactions   = isReal ? realProfile.transactions           : mockTransactions
-
-  // Health data — map snake_case backend keys to camelCase used by the component
-  const healthData = isReal
-    ? {
-        incomeStability:   realProfile.health_data.income_stability,
-        savingsBehaviour:  realProfile.health_data.savings_behaviour,
-        expenseManagement: realProfile.health_data.expense_management,
-        cashFlowRisk:      realProfile.health_data.cash_flow_risk,
-        repaymentCapacity: realProfile.health_data.repayment_capacity,
-      }
-    : mockFinancialHealth
-
+// ─── Status badge ─────────────────────────────────────────────────────────────
+const StatusBadge = ({ status }: { status: string }) => {
+  const styles: Record<string, string> = {
+    'Approved':       'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    'Pending Review': 'bg-amber-500/10  text-amber-400  border-amber-500/20',
+    'Processed':      'bg-blue-500/10   text-blue-400   border-blue-500/20',
+    'Needs Attention':'bg-red-500/10    text-red-400    border-red-500/20',
+    'Rejected':       'bg-red-500/10    text-red-400    border-red-500/20',
+    'Uploading':      'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  }
+  const dots: Record<string, string> = {
+    'Approved':       'bg-emerald-400',
+    'Pending Review': 'bg-amber-400',
+    'Processed':      'bg-blue-400',
+    'Needs Attention':'bg-red-400',
+    'Rejected':       'bg-red-400',
+    'Uploading':      'bg-purple-400',
+  }
   return (
-    <div className="flex flex-col gap-8 pb-10">
+    <span className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium ${styles[status] ?? 'bg-gray-500/10 text-gray-400 border-gray-500/20'}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dots[status] ?? 'bg-gray-400'}`} />
+      {status}
+    </span>
+  )
+}
 
-      {/* ── Live Data Banner ─────────────────────────────────────────────── */}
-      {isReal ? (
-        <div className="flex items-center gap-3 bg-[#10b981]/5 border border-[#10b981]/20 rounded-xl px-5 py-3">
-          <div className="w-2 h-2 rounded-full bg-[#10b981] animate-pulse flex-shrink-0" />
-          <p className="text-sm text-[#10b981] font-medium flex-1">
-            Showing <strong>live analysis</strong> from your uploaded MoMo transaction data
-            — {realProfile.summary.num_months} months analysed
+// ─── Derived data ─────────────────────────────────────────────────────────────
+const totalProcessed  = MOCK_DOCUMENTS.length
+const pendingCount    = MOCK_DOCUMENTS.filter(d => d.status === 'Pending Review' || d.status === 'Needs Attention').length
+const approvedCount   = MOCK_DOCUMENTS.filter(d => d.status === 'Approved').length
+const rejectedCount   = MOCK_DOCUMENTS.filter(d => d.status === 'Rejected').length
+const totalExpenses   = MOCK_DOCUMENTS.reduce((s, d) => s + d.amount, 0)
+const maxBar          = Math.max(...MONTHLY_STATS.map(m => m.total))
+
+// Pipeline stages
+const PIPELINE = [
+  { label: 'Uploaded',     count: totalProcessed,  color: 'bg-blue-400',    border: 'border-blue-500/30',    text: 'text-blue-400' },
+  { label: 'Processing',   count: 0,                color: 'bg-purple-400',  border: 'border-purple-500/30',  text: 'text-purple-400' },
+  { label: 'Needs Review', count: pendingCount,     color: 'bg-amber-400',   border: 'border-amber-500/30',   text: 'text-amber-400' },
+  { label: 'Approved',     count: approvedCount,    color: 'bg-emerald-400', border: 'border-emerald-500/30', text: 'text-emerald-400' },
+  { label: 'Rejected',     count: rejectedCount,    color: 'bg-red-400',     border: 'border-red-500/30',     text: 'text-red-400' },
+]
+
+// AI insights
+const AI_INSIGHTS = [
+  { type: 'warning', msg: '3 receipts are missing vendor tax information.' },
+  { type: 'info',    msg: 'Office expenses increased by 18% compared with August.' },
+  { type: 'alert',   msg: '2 possible duplicate invoices detected.' },
+  { type: 'success', msg: '₵20,200 in expenses approved and ready to export.' },
+]
+
+export default function DashboardOverview() {
+  return (
+    <div className="flex flex-col gap-6">
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Good morning, Emmanuel 👋</h1>
+          <p className="text-gray-400 text-sm mt-1">
+            Manage your invoices, receipts, and business expenses with AI.
           </p>
-          <Link href="/dashboard/upload" className="text-xs text-gray-500 hover:text-white transition-colors whitespace-nowrap">
-            Update data →
+        </div>
+        {/* Quick actions */}
+        <div className="flex flex-wrap gap-2">
+          <Link href="/dashboard/upload"
+            className="flex items-center gap-2 bg-[#ff6b8b] hover:bg-[#e85577] text-black text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+            Upload Invoice
+          </Link>
+          <Link href="/dashboard/upload"
+            className="flex items-center gap-2 border border-[#23252a] hover:border-[#444] text-gray-300 hover:text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            Upload Receipt
+          </Link>
+          <Link href="/dashboard/approvals"
+            className="flex items-center gap-2 border border-amber-500/30 text-amber-400 hover:bg-amber-500/5 text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Review Pending
+            {pendingCount > 0 && (
+              <span className="bg-amber-400 text-black text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">{pendingCount}</span>
+            )}
+          </Link>
+          <Link href="/dashboard/reports"
+            className="flex items-center gap-2 border border-[#23252a] hover:border-[#444] text-gray-300 hover:text-white text-sm font-medium px-4 py-2.5 rounded-xl transition-colors">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export Report
           </Link>
         </div>
-      ) : (
-        <div className="flex items-center gap-3 bg-[#23252a]/60 border border-[#2a2d35] rounded-xl px-5 py-3">
-          <div className="w-2 h-2 rounded-full bg-yellow-500 flex-shrink-0" />
-          <p className="text-sm text-gray-400 flex-1">
-            Showing <strong className="text-gray-300">sample data</strong> — upload your MoMo transactions to see your real Credit Intelligence Profile
-          </p>
-          <Link href="/dashboard/upload" className="text-xs text-[#ff6b8b] hover:text-[#e85577] transition-colors font-semibold whitespace-nowrap">
-            Upload now →
+      </div>
+
+      {/* ── Processing Status Pipeline ──────────────────────────────────────── */}
+      <div className="rounded-2xl border border-[#23252a] bg-[#0f1115] p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-white font-semibold text-sm">Document Processing Pipeline</h3>
+          <span className="text-xs text-gray-500">{totalProcessed} total documents</span>
+        </div>
+        <div className="flex items-stretch gap-0">
+          {PIPELINE.map((p, i) => (
+            <div key={p.label} className="flex-1 flex flex-col items-center relative">
+              {/* connector line */}
+              {i < PIPELINE.length - 1 && (
+                <div className="absolute right-0 top-6 w-full h-px bg-[#23252a] -z-0" />
+              )}
+              <div className={`relative z-10 w-12 h-12 rounded-xl border ${p.border} bg-[#1a1c22] flex items-center justify-center mb-2`}>
+                <span className={`text-base font-bold ${p.text}`}>{p.count}</span>
+              </div>
+              <div className={`w-1.5 h-1.5 rounded-full ${p.color} mb-1.5`} />
+              <span className="text-xs text-gray-400 text-center leading-tight">{p.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Summary Stats ───────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+        {[
+          {
+            label: 'Documents Processed', value: totalProcessed, suffix: '',
+            icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>,
+            color: 'text-blue-400', bg: 'bg-blue-500/10', trend: '+12 this week',
+          },
+          {
+            label: 'Pending Review', value: pendingCount, suffix: '',
+            icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>,
+            color: 'text-amber-400', bg: 'bg-amber-500/10', trend: 'Action needed',
+          },
+          {
+            label: 'Approved Expenses', value: approvedCount, suffix: '',
+            icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>,
+            color: 'text-emerald-400', bg: 'bg-emerald-500/10', trend: '+4 this week',
+          },
+          {
+            label: 'Total Expenses (Sep)', value: `₵${totalExpenses.toLocaleString('en-GH', { minimumFractionDigits: 0 })}`, suffix: '',
+            icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>,
+            color: 'text-[#ff6b8b]', bg: 'bg-[#ff6b8b]/10', trend: '+8.4% vs August',
+          },
+        ].map((s) => (
+          <div key={s.label} className="rounded-2xl border border-[#23252a] bg-[#0f1115] p-5 flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-gray-500 font-medium">{s.label}</span>
+              <span className={`${s.bg} ${s.color} p-2 rounded-lg`}>{s.icon}</span>
+            </div>
+            <p className="text-3xl font-bold text-white">{s.value}</p>
+            <p className="text-xs text-gray-500">{s.trend}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Main content grid ───────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        {/* Expense chart */}
+        <div className="lg:col-span-2 rounded-2xl border border-[#23252a] bg-[#0f1115] p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-white font-semibold">Monthly Expenses</h3>
+              <p className="text-gray-500 text-xs mt-0.5">Approved vs Pending — last 6 months</p>
+            </div>
+            <div className="flex gap-4 text-xs text-gray-500">
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-400" />Approved</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-amber-400" />Pending</span>
+            </div>
+          </div>
+          <div className="flex items-end gap-3" style={{ height: '140px' }}>
+            {MONTHLY_STATS.map((m) => (
+              <div key={m.month} className="flex-1 flex flex-col items-center gap-1">
+                <div className="w-full flex flex-col justify-end gap-0.5" style={{ height: '110px' }}>
+                  <div className="w-full rounded-t-sm bg-amber-400/70 transition-all" style={{ height: `${(m.pending / maxBar) * 100}px` }} title={`Pending ₵${m.pending.toLocaleString()}`} />
+                  <div className="w-full rounded-sm bg-emerald-400/70 transition-all" style={{ height: `${(m.approved / maxBar) * 100}px` }} title={`Approved ₵${m.approved.toLocaleString()}`} />
+                </div>
+                <span className="text-xs text-gray-500">{m.month}</span>
+                <span className="text-xs text-gray-600">₵{(m.total / 1000).toFixed(0)}k</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* AI Insights */}
+        <div className="rounded-2xl border border-[#23252a] bg-[#0f1115] p-6 flex flex-col gap-4">
+          <div className="flex items-center gap-2">
+            <span className="bg-[#ff6b8b]/10 text-[#ff6b8b] p-1.5 rounded-lg">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </span>
+            <h3 className="text-white font-semibold text-sm">AI Insights</h3>
+            <span className="ml-auto text-xs bg-[#ff6b8b]/10 text-[#ff6b8b] px-2 py-0.5 rounded-full">{AI_INSIGHTS.length} alerts</span>
+          </div>
+
+          <div className="flex flex-col gap-2 flex-1">
+            {AI_INSIGHTS.map((insight, i) => {
+              const icon = {
+                warning: { color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' },
+                info:    { color: 'text-blue-400',  bg: 'bg-blue-500/10  border-blue-500/20' },
+                alert:   { color: 'text-red-400',   bg: 'bg-red-500/10   border-red-500/20' },
+                success: { color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' },
+              }[insight.type] ?? { color: 'text-gray-400', bg: 'bg-gray-500/10 border-gray-500/20' }
+
+              return (
+                <div key={i} className={`flex items-start gap-2.5 rounded-xl border p-3 ${icon.bg}`}>
+                  <svg className={`flex-shrink-0 mt-0.5 ${icon.color}`} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    {insight.type === 'success'
+                      ? <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></>
+                      : <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>
+                    }
+                  </svg>
+                  <p className={`text-xs leading-relaxed ${icon.color}`}>{insight.msg}</p>
+                </div>
+              )
+            })}
+          </div>
+
+          <Link href="/dashboard/approvals"
+            className="text-center text-sm text-[#ff6b8b] hover:text-white border border-[#ff6b8b]/30 hover:border-[#ff6b8b] rounded-xl py-2.5 transition-colors">
+            Review Queue →
           </Link>
+        </div>
+      </div>
+
+      {/* ── Recent Documents ────────────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-[#23252a] bg-[#0f1115] overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#23252a]">
+          <div>
+            <h3 className="text-white font-semibold">Recent Documents</h3>
+            <p className="text-gray-500 text-xs mt-0.5">Latest invoices and receipts uploaded</p>
+          </div>
+          <Link href="/dashboard/documents" className="text-xs text-[#ff6b8b] hover:text-white transition-colors">
+            View all →
+          </Link>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-[#1a1c22]">
+                {['Vendor', 'Type', 'Date', 'Amount', 'Category', 'Confidence', 'Status', 'Actions'].map(h => (
+                  <th key={h} className="text-left text-xs text-gray-500 font-medium px-5 py-3 whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {MOCK_DOCUMENTS.slice(0, 8).map((doc) => (
+                <tr key={doc.id} className="border-b border-[#1a1c22] hover:bg-[#1a1c22]/50 transition-colors group">
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-[#1a1c22] flex items-center justify-center flex-shrink-0">
+                        <span className={`text-[10px] font-bold ${doc.fileType === 'PDF' ? 'text-red-400' : doc.fileType === 'JPG' ? 'text-blue-400' : 'text-green-400'}`}>
+                          {doc.fileType}
+                        </span>
+                      </div>
+                      <span className="text-sm text-white font-medium">{doc.vendor}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3.5 text-sm text-gray-400">{doc.type}</td>
+                  <td className="px-5 py-3.5 text-sm text-gray-400 whitespace-nowrap">
+                    {new Date(doc.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </td>
+                  <td className="px-5 py-3.5 text-sm text-white font-semibold">₵{doc.amount.toLocaleString()}</td>
+                  <td className="px-5 py-3.5 text-sm text-gray-400">{doc.category}</td>
+                  <td className="px-5 py-3.5">
+                    {doc.aiConfidence ? (
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-12 h-1.5 bg-[#23252a] rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${doc.aiConfidence.total >= 95 ? 'bg-emerald-400' : doc.aiConfidence.total >= 85 ? 'bg-amber-400' : 'bg-red-400'}`}
+                            style={{ width: `${doc.aiConfidence.total}%` }}
+                          />
+                        </div>
+                        <span className={`text-xs font-medium ${doc.aiConfidence.total >= 95 ? 'text-emerald-400' : doc.aiConfidence.total >= 85 ? 'text-amber-400' : 'text-red-400'}`}>
+                          {doc.aiConfidence.total}%
+                        </span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-600">—</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3.5"><StatusBadge status={doc.status} /></td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      {(doc.status === 'Pending Review' || doc.status === 'Needs Attention') && (
+                        <Link href="/dashboard/approvals"
+                          className="text-xs text-[#ff6b8b] hover:text-white border border-[#ff6b8b]/30 hover:border-[#ff6b8b] px-2.5 py-1 rounded-lg transition-colors">
+                          Review
+                        </Link>
+                      )}
+                      <Link href="/dashboard/documents"
+                        className="text-xs text-gray-400 hover:text-white border border-[#23252a] hover:border-gray-500 px-2.5 py-1 rounded-lg transition-colors">
+                        View
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Approval quick-look ─────────────────────────────────────────────── */}
+      {PENDING_APPROVALS.length > 0 && (
+        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <svg className="text-amber-400" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <h3 className="text-white font-semibold text-sm">{PENDING_APPROVALS.length} Documents Awaiting Approval</h3>
+            </div>
+            <Link href="/dashboard/approvals"
+              className="text-xs text-amber-400 border border-amber-500/30 hover:border-amber-500 hover:bg-amber-500/10 px-3 py-1.5 rounded-lg transition-colors">
+              Review All →
+            </Link>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {PENDING_APPROVALS.map((doc) => (
+              <div key={doc.id} className="rounded-xl border border-[#23252a] bg-[#0f1115] p-4 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-white text-sm font-medium truncate">{doc.vendor}</span>
+                  <StatusBadge status={doc.status} />
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>{doc.type}</span>
+                  <span className="font-semibold text-white">₵{doc.amount.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-gray-500">
+                  <span>{doc.category}</span>
+                  <span>{new Date(doc.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                </div>
+                {doc.aiConfidence && (
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <span className="text-xs text-gray-500">AI confidence:</span>
+                    <span className={`text-xs font-semibold ${doc.aiConfidence.total >= 95 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {doc.aiConfidence.total}%
+                    </span>
+                  </div>
+                )}
+                {doc.warnings && doc.warnings.length > 0 && (
+                  <div className="text-xs text-amber-400 flex items-center gap-1">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    {doc.warnings[0]}
+                  </div>
+                )}
+                <Link href="/dashboard/approvals"
+                  className="mt-1 w-full text-center text-xs text-[#ff6b8b] border border-[#ff6b8b]/20 hover:border-[#ff6b8b]/50 py-1.5 rounded-lg transition-colors">
+                  Review →
+                </Link>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* ── Header ───────────────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-white mb-2">
-            Good morning, {mockUser.name}
-          </h1>
-          <p className="text-gray-400">
-            Here&apos;s an overview of your financial health and Credit Intelligence profile.
-          </p>
-        </div>
-      </div>
-
-      {/* ── Top Stats Grid ───────────────────────────────────────────────── */}
-      <div className="flex flex-col lg:flex-row gap-4 w-full">
-        <div className="flex-1">
-          <StatCard
-            title="Credit Intelligence"
-            value={`${creditScore} / 100`}
-            trend={scoreLabel}
-            trendPositive={creditScore >= 65}
-          />
-        </div>
-        <div className="flex-1">
-          <StatCard
-            title="Total Income"
-            value={`₵${totalIncome.toLocaleString()}`}
-            trend={incomeTrend}
-            trendPositive={true}
-          />
-        </div>
-        <div className="flex-1">
-          <StatCard
-            title="Total Expenses"
-            value={`₵${totalExpenses.toLocaleString()}`}
-            trend="-1.4%"
-            trendPositive={true}
-          />
-        </div>
-        <div className="flex-1">
-          <StatCard
-            title="Total Savings"
-            value={`₵${totalSavings.toLocaleString()}`}
-            trend={isReal ? `${realProfile.summary.savings_rate}% rate` : "+8.1%"}
-            trendPositive={true}
-          />
-        </div>
-      </div>
-
-      {/* ── Cash Flow + Health ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">
-          <CashFlowChart data={cashFlowData} />
-        </div>
-        <div className="lg:col-span-1">
-          <FinancialHealth healthData={healthData} />
-        </div>
-      </div>
-
-      {/* ── AI Insights + CTA ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <AIInsights
-          insightText={aiOverview}
-          actionLink="/dashboard/analysis"
-          actionText="View Full Analysis"
-        />
-
-        <div className="bg-[#13151a] border border-[#23252a] rounded-2xl p-6 flex flex-col justify-center gap-4">
-          {isReal ? (
-            <>
-              <h3 className="text-lg font-bold text-white">Update Your Profile</h3>
-              <p className="text-sm text-gray-400">
-                Upload a newer MoMo statement to refresh your Credit Intelligence Profile with the latest transactions.
-              </p>
-              <Link
-                href="/dashboard/upload"
-                className="bg-white text-black hover:bg-gray-200 transition-colors font-semibold text-sm px-6 py-3 rounded-xl w-max mt-2"
-              >
-                Upload New Statement
-              </Link>
-            </>
-          ) : (
-            <>
-              <h3 className="text-lg font-bold text-white">Build Your Credit Profile</h3>
-              <p className="text-sm text-gray-400">
-                Upload your MoMo transaction history to generate your real Credit Intelligence Profile — takes under 30 seconds.
-              </p>
-              <Link
-                href="/dashboard/upload"
-                className="bg-[#ff6b8b] text-black hover:bg-[#e85577] transition-colors font-semibold text-sm px-6 py-3 rounded-xl w-max mt-2"
-              >
-                Upload My Transactions
-              </Link>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* ── Recent Transactions ──────────────────────────────────────────── */}
-      <RecentTransactions transactions={transactions} />
     </div>
   )
 }
