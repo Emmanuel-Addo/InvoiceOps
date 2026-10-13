@@ -105,7 +105,7 @@ export default function UploadPage() {
       })()
 
       // Call the backend
-      const API_BASE = process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000'
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000')
       const res = await fetch(`${API_BASE}/api/upload-document`, {
         method: 'POST',
         body: formData,
@@ -121,7 +121,7 @@ export default function UploadPage() {
 
       // Save real extracted data to localStorage for the approvals page to read
       const existing = JSON.parse(localStorage.getItem('invoiceops_uploads') ?? '[]')
-      existing.unshift(data.data)
+      existing.unshift(data)
       localStorage.setItem('invoiceops_uploads', JSON.stringify(existing.slice(0, 20)))
 
       setStage('done')

@@ -26,7 +26,7 @@ export default function ExpensesPage() {
   useEffect(() => {
     async function fetchExpenses() {
       try {
-        const API_BASE = process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000'
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000')
         const res = await fetch(`${API_BASE}/api/expenses`)
         const data = await res.json()
         setExpenses(data.expenses || [])

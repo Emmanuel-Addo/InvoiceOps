@@ -36,7 +36,7 @@ export default function DocumentsPage() {
   useEffect(() => {
     async function fetchDocuments() {
       try {
-        const API_BASE = process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000'
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000')
         const res = await fetch(`${API_BASE}/api/documents?limit=1000`)
         const data = await res.json()
         setDocuments(data.documents || [])

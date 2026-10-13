@@ -359,7 +359,93 @@ def reports_summary():
     }
 
 
+# ── AI Report Generation ──────────────────────────────────────────────────────
+@app.post("/api/reports/generate")
+async def generate_ai_report():
+    """Use Gemini AI to generate a comprehensive financial report from real data."""
+    if not _gemini_client:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured.")
+
+    try:
+        all_docs  = supabase.table("documents").select("*").execute().data or []
+        expenses  = supabase.table("expenses").select("*").execute().data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    approved  = [d for d in all_docs if d.get("status") == "Approved"]
+    pending   = [d for d in all_docs if d.get("status") == "Pending Review"]
+    rejected  = [d for d in all_docs if d.get("status") == "Rejected"]
+
+    total_approved_amount = round(sum(d.get("total_amount") or 0 for d in approved), 2)
+    total_pending_amount  = round(sum(d.get("total_amount") or 0 for d in pending), 2)
+
+    category_totals: dict = {}
+    for e in expenses:
+        cat = e.get("category", "Other")
+        category_totals[cat] = round(category_totals.get(cat, 0) + (e.get("amount") or 0), 2)
+
+    vendor_totals: dict = {}
+    for d in approved:
+        v = d.get("vendor") or "Unknown"
+        vendor_totals[v] = round(vendor_totals.get(v, 0) + (d.get("total_amount") or 0), 2)
+
+    top_vendors = sorted(vendor_totals.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    prompt = f"""You are a financial analyst. Generate a comprehensive, professional financial report for a business based on the following real data extracted from invoices and receipts.
+
+## DATA SUMMARY
+- **Report Date**: {date.today().strftime('%B %d, %Y')}
+- **Total Documents Processed**: {len(all_docs)}
+- **Approved**: {len(approved)} documents totalling GHS {total_approved_amount:,.2f}
+- **Pending Review**: {len(pending)} documents totalling GHS {total_pending_amount:,.2f}
+- **Rejected**: {len(rejected)} documents
+
+## EXPENSE BREAKDOWN BY CATEGORY
+{chr(10).join(f"- {cat}: GHS {amt:,.2f}" for cat, amt in sorted(category_totals.items(), key=lambda x: x[1], reverse=True))}
+
+## TOP VENDORS BY SPEND
+{chr(10).join(f"{i+1}. {v}: GHS {a:,.2f}" for i, (v, a) in enumerate(top_vendors))}
+
+## RECENT APPROVED DOCUMENTS (last 10)
+{chr(10).join(f"- {d.get('vendor','?')} | {d.get('doc_type','?')} | GHS {d.get('total_amount',0):,.2f} | {d.get('date','?')} | {d.get('category','?')}" for d in approved[-10:])}
+
+---
+
+Write a detailed financial report with these sections:
+1. **Executive Summary** - Brief overview of financial health
+2. **Expense Analysis** - Breakdown of spending patterns by category
+3. **Vendor Analysis** - Top vendors and spending concentration
+4. **Document Processing** - Approval rates and pipeline health
+5. **Key Insights & Recommendations** - Actionable observations
+
+Use professional financial language. Format with clear headings using ## and ###. Use bullet points where appropriate. Include specific numbers from the data. Keep it concise but thorough (400-600 words).
+"""
+
+    try:
+        response = _gemini_client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=[prompt]
+        )
+        report_text = response.text.strip()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI generation failed: {str(e)}")
+
+    return {
+        "report": report_text,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "summary": {
+            "total_documents": len(all_docs),
+            "approved_count": len(approved),
+            "pending_count": len(pending),
+            "rejected_count": len(rejected),
+            "total_approved_amount": total_approved_amount,
+            "currency": "GHS",
+        }
+    }
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+

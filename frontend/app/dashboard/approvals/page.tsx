@@ -33,7 +33,7 @@ export default function ApprovalsPage() {
   useEffect(() => {
     async function fetchPending() {
       try {
-        const API_BASE = process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000'
+        const API_BASE = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000')
         const res = await fetch(`${API_BASE}/api/documents?limit=50`)
         const data = await res.json()
         const docs = data.documents || []
@@ -93,7 +93,7 @@ export default function ApprovalsPage() {
 
   const removeFromQueue = async (id: string, action: 'approve' | 'reject' | 'correct') => {
     try {
-      const API_BASE = process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000'
+      const API_BASE = process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'production' ? 'https://invoice-ops-bmmg.vercel.app' : 'http://localhost:8000')
       if (action === 'approve') {
         await fetch(`${API_BASE}/api/approve/${id}`, { method: 'POST' })
       } else if (action === 'reject') {
